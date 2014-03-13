@@ -224,6 +224,21 @@ sq.host =  window.location.search.match('sq-dev') ?
       dispatch('squirt.play');
     };
   };
+  String.prototype.mysplit = function() {
+    var space_split_list = this.split(/[\s]+/g);
+    var final_list = [];
+    space_split_list.forEach(
+        function(i) {
+          if (i.match(/[\u3400-\u9FBF]/)) {
+            final_list = final_list.concat(i.match(/.{1,7}/g));
+          } else {
+            final_list.push(i);
+          }
+        }
+        )
+
+    return final_list;
+  }
 
   function makeTextToNodes(wordToNode) {
     return function textToNodes(text) {
@@ -231,7 +246,8 @@ sq.host =  window.location.search.match('sq-dev') ?
       return text
              .replace(/[\,\.\!\:\;](?![\"\'\)\]\}])/g, "$& ")
              //.split(/[\s]+/g)
-             .match(/.{1,7}/g)
+             .mysplit()
+             //.match(/.{1,7}/g)
              .filter(function(word){ return word.length; })
              .map(wordToNode);
     };
