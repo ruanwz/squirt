@@ -6,9 +6,11 @@ sq.host =  window.location.search.match('sq-dev') ?
 
 (function(Keen){
   Keen.addEvent('load');
+
   on('mousemove', function(){
     document.querySelector('.sq .modal').style.cursor = 'auto';
   });
+
   (function makeSquirt(read, makeGUI) {
 
     on('squirt.again', startSquirt);
@@ -69,15 +71,21 @@ sq.host =  window.location.search.match('sq-dev') ?
       return ret;
     };
 
-    var intervalMs;
+    var intervalMs, _wpm;
     function wpm(wpm){
+      _wpm = wpm;
       intervalMs = 60 * 1000 / wpm ;
     };
 
     (function readerEventHandlers(){
       on('squirt.close', function(){
+        sq.closed = true;
         clearTimeout(nextNodeTimeoutId);
         Keen.addEvent('close');
+      });
+
+      on('squirt.wpm.adjust', function(e){
+        dispatch('squirt.wpm', {value: e.value + _wpm});
       });
 
       on('squirt.wpm', function(e){
@@ -117,6 +125,7 @@ sq.host =  window.location.search.match('sq-dev') ?
     function play(e){
       sq.paused = false;
       dispatch('squirt.pause.after');
+      document.querySelector('.sq .wpm-selector').style.display = 'none'
       nextNode(e.jumped);
       e.notForKeen === undefined && Keen.addEvent('play');
     };
@@ -160,6 +169,7 @@ sq.host =  window.location.search.match('sq-dev') ?
     var waitAfterComma = 2;
     var waitAfterPeriod = 3;
     var waitAfterParagraph = 3.5;
+    var waitAfterLongWord = 1.5;
     function getDelay(node, jumped){
       var word = node.word;
       if(jumped) return waitAfterPeriod;
@@ -172,6 +182,7 @@ sq.host =  window.location.search.match('sq-dev') ?
       if('.!?'.indexOf(lastChar) != -1) return waitAfterPeriod;
       if(',;:–'.indexOf(lastChar) != -1) return waitAfterComma;
       if(word.length < 4) return waitAfterShortWord;
+      if(word.length > 11) return waitAfterLongWord;
       return 1;
     };
 
@@ -258,7 +269,7 @@ sq.host =  window.location.search.match('sq-dev') ?
     var match = word.match(instructionsRE);
     if(match && match.length > 1){
       node.instructions = [];
-      match[1].split(';')
+      match[1].split('#')
       .filter(function(w){ return w.length; })
       .map(function(instruction){
         var val = Number(instruction.split('=')[1]);
@@ -280,7 +291,7 @@ sq.host =  window.location.search.match('sq-dev') ?
       length--;
     }
     if(',.?!:;"'.indexOf(lastChar) != -1) length--;
-    return length == 1 ? 0 :
+    return length <= 1 ? 0 :
       (length == 2 ? 1 :
           (length == 3 ? 1 :
               Math.floor(length / 2) - 1));
@@ -306,14 +317,31 @@ sq.host =  window.location.search.match('sq-dev') ?
     return node;
   };
 
+  var disableKeyboardShortcuts;
   function showGUI(){
     blur();
     document.querySelector('.sq').style.display = 'block';
+    disableKeyboardShortcuts = on('keydown', handleKeypress);
   };
 
   function hideGUI(){
     unblur();
     document.querySelector('.sq').style.display = 'none';
+    disableKeyboardShortcuts && disableKeyboardShortcuts();
+  };
+
+  var keyHandlers = {
+      32: dispatch.bind(null, 'squirt.play.toggle'),
+      27: dispatch.bind(null, 'squirt.close'),
+      38: dispatch.bind(null, 'squirt.wpm.adjust', {value: 10}),
+      40: dispatch.bind(null, 'squirt.wpm.adjust', {value: -10}),
+      37: dispatch.bind(null, 'squirt.rewind', {seconds: 10})
+  };
+
+  function handleKeypress(e){
+    var handler = keyHandlers[e.keyCode];
+    handler && (handler(), e.preventDefault())
+    return false;
   };
 
   function blur(){
@@ -335,24 +363,23 @@ sq.host =  window.location.search.match('sq-dev') ?
     on('squirt.close', hideGUI);
     var obscure = makeDiv({class: 'sq-obscure'}, squirt);
     on(obscure, 'click', function(){
-      sq.closed = true;
       dispatch('squirt.close');
-      Keen.addEvent('close');
     });
 
     on(window, 'orientationchange', function(){
       Keen.addEvent('orientation-change', {'orientation': window.orientation});
     });
 
-    var modal = makeDiv({'class': 'sq modal'}, squirt);
+    var modal = makeDiv({'class': 'modal'}, squirt);
 
-    var controls = makeDiv({'class':'sq controls'}, modal);
-    var reader = makeDiv({'class': 'sq reader'}, modal);
-    var wordContainer = makeDiv({'class': 'sq word-container'}, reader);
-    makeDiv({'class': 'sq focus-indicator-gap'}, wordContainer);
-    makeDiv({'class': 'sq word-prerenderer'}, wordContainer);
-    makeDiv({'class': 'sq final-word'}, modal);
-
+    var controls = makeDiv({'class':'controls'}, modal);
+    var reader = makeDiv({'class': 'reader'}, modal);
+    var wordContainer = makeDiv({'class': 'word-container'}, reader);
+    makeDiv({'class': 'focus-indicator-gap'}, wordContainer);
+    makeDiv({'class': 'word-prerenderer'}, wordContainer);
+    makeDiv({'class': 'final-word'}, modal);
+    var keyboard = makeDiv({'class': 'keyboard-shortcuts'}, reader);
+    keyboard.innerText = "Keys: Space, Esc, Up, Down";
 
     (function make(controls){
 
@@ -503,6 +530,7 @@ sq.host =  window.location.search.match('sq-dev') ?
     onLoad && on(el, 'load', loadHandler);
   };
 
+
   function on(bus, evts, cb){
     if(cb === undefined){
       cb = evts;
@@ -510,9 +538,14 @@ sq.host =  window.location.search.match('sq-dev') ?
       bus = document;
     }
     evts = typeof evts == 'string' ? [evts] : evts;
-    return evts.map(function(evt){
-      return bus.addEventListener(evt, cb);
+    var removers = evts.map(function(evt){
+      bus.addEventListener(evt, cb);
+      return function(){
+        bus.removeEventListener(evt, cb);
+      };
     });
+    if(removers.length == 1) return removers[0];
+    return removers;
   };
 
   function dispatch(evt, attrs, dispatcher){
@@ -527,7 +560,7 @@ sq.host =  window.location.search.match('sq-dev') ?
   function toggle(el){
     var s = window.getComputedStyle(el);
     return (el.style.display = s.display == 'none' ? 'block' : 'none') == 'block';
-  }
+  };
 
 })((function injectKeen(){
   window.Keen=window.Keen||{configure:function(e){this._cf=e},addEvent:function(e,t,n,i){this._eq=this._eq||[],this._eq.push([e,t,n,i])},setGlobalProperties:function(e){this._gp=e},onChartsReady:function(e){this._ocrq=this._ocrq||[],this._ocrq.push(e)}};(function(){var e=document.createElement("script");e.type="text/javascript",e.async=!0,e.src=("https:"==document.location.protocol?"https://":"http://")+"dc8na2hxrj29i.cloudfront.net/code/keen-2.1.0-min.js";var t=document.getElementsByTagName("script")[0];t.parentNode.insertBefore(e,t)})();
