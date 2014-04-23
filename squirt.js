@@ -235,13 +235,28 @@ sq.host =  window.location.search.match('sq-dev') ?
       dispatch('squirt.play');
     };
   };
+  //split for CJK unicode
+  String.prototype.squirt_split = function() {
+    var space_split_list = this.split(/[\s]+/g);
+    var final_list = [];
+    space_split_list.forEach(
+        function(i) {
+          if (i.match(/[\u3400-\u9FBF]/)) {
+            final_list = final_list.concat(i.match(/.{1,7}/g));
+          } else {
+            final_list.push(i);
+          }
+        }
+        )
 
+    return final_list;
+  }
   function makeTextToNodes(wordToNode) {
     return function textToNodes(text) {
       text = "3\n 2\n 1\n " + text.trim('\n').replace(/\s+\n/g,'\n');
       return text
              .replace(/[\,\.\!\:\;](?![\"\'\)\]\}])/g, "$& ")
-             .split(/[\s]+/g)
+             .squirt_split()
              .filter(function(word){ return word.length; })
              .map(wordToNode);
     };
